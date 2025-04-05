@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: identity-provider
   datasource:
     url: jdbc:postgresql://localhost:5432/identity_db
     username: postgres
@@ -6,5 +8,38 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: update # Atualiza o banco de dados conforme as mudanças nas entidades
-    show-sql: true # Exibe as consultas SQL no log
+      ddl-auto: validate # Use 'validate' in production to prevent schema changes
+    show-sql: false # Disable in production
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+  security:
+    oauth2:
+      authorizationserver:
+        client:
+          sample-client: # Define um cliente de exemplo
+            client-id: sample-client
+            client-secret: secret
+            client-authentication-methods:
+              - client_secret_basic
+            authorization-grant-types:
+              - authorization_code
+              - refresh_token
+            redirect-uris:
+              - "http://127.0.0.1:9000/login/oauth2/code/sample-client" # Make sure this matches your client's redirect URI
+            scopes:
+              - openid
+              - profile
+              - email
+  flyway:
+    enabled: true # Enable Flyway migrations
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+server:
+  port: 9000
+
+logging:
+  level:
+    root: INFO
+    org.springframework.security: DEBUG # Enable debug logging for Spring Security

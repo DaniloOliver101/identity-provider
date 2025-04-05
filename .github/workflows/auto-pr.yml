@@ -1,0 +1,33 @@
+name: Auto Pull Request
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+
+jobs:
+  create-pull-request:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: develop
+          title: 'Feature: ${{ github.event.head_ref }}'
+          body: |
+            Automatic pull request created from feature branch
+            
+            Changes made in this PR:
+            - ${{ github.event.head_commit.message }}
+          draft: false
+          delete-branch: false 

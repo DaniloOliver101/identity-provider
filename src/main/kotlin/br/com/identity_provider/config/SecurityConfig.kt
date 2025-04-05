@@ -1,99 +1,116 @@
 package br.com.identity_provider.config
 
+import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.RSAKey
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.Ordered
+import org.springframework.core.annotation.Order
+import org.springframework.security.config.Customizer
 import org.springframework.security.config.annotation.web.builders.HttpSecurity
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
-import org.springframework.security.oauth2.jwt.JwtDecoder
-import org.springframework.security.oauth2.jwt.JwtEncoder
-import org.springframework.security.oauth2.jwt.NimbusJwtDecoder
-import org.springframework.security.oauth2.jwt.JwtEncoderParameters
-import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.core.userdetails.User
+import org.springframework.security.core.userdetails.UserDetailsService
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configuration.OAuth2AuthorizationServerConfiguration.applyDefaultSecurity
+import org.springframework.security.oauth2.server.authorization.config.annotation.web.configurers.OAuth2AuthorizationServerConfigurer
+import org.springframework.security.oauth2.server.authorization.settings.AuthorizationServerSettings
+import org.springframework.security.provisioning.InMemoryUserDetailsManager
+import org.springframework.security.web.SecurityFilterChain
+import org.springframework.security.web.authentication.LoginUrlAuthenticationEntryPoint
 import java.security.KeyPair
 import java.security.KeyPairGenerator
-import java.security.interfaces.RSAPrivateKey
 import java.security.interfaces.RSAPublicKey
 import java.util.*
 
-@Suppress("SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection", "SpellCheckingInspection",
-    "SpellCheckingInspection"
-)
 @Configuration
 @EnableWebSecurity
 class SecurityConfig {
 
-
-    private fun generateRsaKey(): KeyPair {
-        val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
-        keyPairGenerator.initialize(2048)  // Tamanho da chave
-        return keyPairGenerator.generateKeyPair()
-    }
-
-
     @Bean
-    fun securityFilterChain(http: HttpSecurity): SecurityFilterChain {
-        http
-            .authorizeHttpRequests { auth ->
-
-                auth
-                    .requestMatchers("/public/**", "/auth/**").permitAll()
-                    .anyRequest().authenticated()
-            }
-            .oauth2ResourceServer { resourceServer ->
-                resourceServer.jwt { jwtConfigurer ->
-                    jwtConfigurer.decoder(jwtDecoder())
-                }
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    fun authorizationServerSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
+        applyDefaultSecurity(http)
+        http.getConfigurer(OAuth2AuthorizationServerConfigurer::class.java)
+            .oidc(Customizer.withDefaults())	// Enable OIDC 1.0
+            .authorizationEndpoint { authorizationEndpoint ->
+                authorizationEndpoint.consentPage("/oauth2/consent")
             }
 
-            .formLogin { formLogin ->
-                formLogin
-                    .loginPage("/login")  //
-                    .permitAll()  // Permite acesso à página de login sem autenticação
-            }
+        http.exceptionHandling { exceptions ->
+            exceptions.authenticationEntryPoint(
+                LoginUrlAuthenticationEntryPoint("/login")
+            )
+        }
+            .oauth2ResourceServer { resourceServer -> resourceServer.jwt(Customizer.withDefaults()) }
 
         return http.build()
     }
 
-    // Bean para gerar a chave RSA (pública e privada)
+    @Bean
+    fun jwkSet(): JWKSet {
+        val rsaKey = generateRsa()
+        val jwk = RSAKey.Builder(rsaKey.public as RSAPublicKey)
+            .keyID(UUID.randomUUID().toString())
+            .privateKey(rsaKey.private)
+            .build()
+        return JWKSet(jwk)
+    }
+
     @Bean
     fun rsaKey(): RSAKey {
-        val keyPair = generateRsaKey()
-        val publicKey = keyPair.public as RSAPublicKey
-        val privateKey = keyPair.private as RSAPrivateKey
-
-        // Construa a chave pública e privada
-        return RSAKey.Builder(publicKey)
-            .privateKey(privateKey)
-            .keyID(UUID.randomUUID().toString())  // Gerar um ID único para a chave
+        val rsaKey = generateRsa()
+        return RSAKey.Builder(rsaKey.public as RSAPublicKey)
+            .keyID(UUID.randomUUID().toString())
+            .privateKey(rsaKey.private)
             .build()
     }
 
-
-    @Bean
-    fun jwtDecoder(): JwtDecoder {
-        val rsaKey = rsaKey()  // Pega a chave pública gerada
-        return NimbusJwtDecoder.withPublicKey(rsaKey.toPublicKey() as RSAPublicKey?).build()  // Usando NimbusJwtDecoder
+    private fun generateRsa(): KeyPair {
+        val keyPair: KeyPair = try {
+            val keyPairGenerator = KeyPairGenerator.getInstance("RSA")
+            keyPairGenerator.initialize(2048)
+            keyPairGenerator.generateKeyPair()
+        } catch (ex: Exception) {
+            throw IllegalStateException(ex)
+        }
+        return keyPair
     }
 
-
     @Bean
-    fun jwtEncoder(): JwtEncoder {
-        val rsaKey = rsaKey()  // Pega a chave privada gerada
-        return JwtEncoder { JwtEncoderParameters.fromKey(rsaKey.toPrivateKey()) }
+    fun authorizationServerSettings(): AuthorizationServerSettings {
+        return AuthorizationServerSettings.builder().issuer("http://localhost:9000").build()
     }
 
-    // Bean para o PasswordEncoder que é usado para codificar as senhas dos usuários
+    @Bean
+    fun users(): UserDetailsService {
+        val user = User.withUsername("admin")
+            .password(passwordEncoder().encode("admin"))
+            .roles("ADMIN")
+            .build()
+        return InMemoryUserDetailsManager(user)
+    }
+
     @Bean
     fun passwordEncoder(): PasswordEncoder {
         return BCryptPasswordEncoder()
+    }
+
+    @Bean
+    fun defaultSecurityFilterChain(http: HttpSecurity): SecurityFilterChain {
+        http.authorizeHttpRequests { authorizeRequests ->
+            authorizeRequests
+                .requestMatchers("/oauth2/consent").permitAll()
+                .requestMatchers("/login").permitAll()
+                .requestMatchers("/auth/register").permitAll()
+                .requestMatchers("/users/**").hasRole("ADMIN")
+                .anyRequest().authenticated()
+        }
+            .csrf { csrf -> csrf.disable() }
+            .formLogin { formLogin -> formLogin.disable() }
+            .oauth2ResourceServer { resourceServer -> resourceServer.jwt(Customizer.withDefaults()) }
+
+        return http.build()
     }
 }
