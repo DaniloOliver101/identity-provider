@@ -1,13 +1,17 @@
 name: Auto Pull Request
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Build and Test"]
+    types:
+      - completed
     branches:
       - 'feature/**'
 
 jobs:
   create-pull-request:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     permissions:
       pull-requests: write
       contents: write
@@ -23,11 +27,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: develop
-          title: 'Feature: ${{ github.event.head_ref }}'
+          title: 'Feature: ${{ github.event.workflow_run.head_branch }}'
           body: |
             Automatic pull request created from feature branch
             
             Changes made in this PR:
-            - ${{ github.event.head_commit.message }}
+            - Build and tests passed successfully
           draft: false
           delete-branch: false 
